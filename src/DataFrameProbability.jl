@@ -117,27 +117,28 @@ Compare two probability distributions using Jensen-Shannon Divergence.
 
 # Arguments
 - `dist1`, `dist2`: The probability distributions to compare. Can be either Weights (for marginal distributions) or Dict (for conditional distributions).
+- `distance`: The distance metric to use. Defaults to Jensen-Shannon Divergence. Can be any distance metric from the Distances.jl package. Note that you can get the JS distance by taking the square root of the JSDivergence. Another good option is `HellingerDist()`.
 
 # Returns
 - `Union{Float64, Dict}`: The Jensen-Shannon Divergence between the distributions. Returns a single Float64 for marginal distributions, or a Dict of divergences for conditional distributions.
 """
-function compare_distributions(dist1::Union{Weights,Dict}, dist2::Union{Weights,Dict})
+function compare_distributions(dist1::Union{Weights,Dict}, dist2::Union{Weights,Dict}; distance=JSDivergence())
   if isa(dist1, Weights) && isa(dist2, Weights)
-    return evaluate(JSDivergence(), dist1, dist2)
+    return evaluate(distance, dist1, dist2)
   elseif isa(dist1, Dict) && isa(dist2, Dict)
     result = Dict()
     all_keys = union(keys(dist1), keys(dist2))
     for key in all_keys
       if haskey(dist1, key) && haskey(dist2, key)
-        result[key] = evaluate(JSDivergence(), dist1[key], dist2[key])
+        result[key] = evaluate(distance, dist1[key], dist2[key])
       else
         # Handle missing conditions by using a uniform distribution
         missing_dist = Weights(ones(length(first(dist1).second)) /
                                length(first(dist1).second))
         if haskey(dist1, key)
-          result[key] = evaluate(JSDivergence(), dist1[key], missing_dist)
+          result[key] = evaluate(distance, dist1[key], missing_dist)
         else
-          result[key] = evaluate(JSDivergence(), missing_dist, dist2[key])
+          result[key] = evaluate(distance, missing_dist, dist2[key])
         end
       end
     end
