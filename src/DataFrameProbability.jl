@@ -25,6 +25,23 @@ Calculate the probability distribution of a focal column in a DataFrame, optiona
 
 # Returns
 - `Tuple{Union{Weights, Dict}, Dict{Symbol, Vector}}`: The calculated probability distribution and a dictionary of all categories for each column.
+
+# Notes on Conditional Distributions
+When `condition_columns` is not empty, the function returns a conditional distribution with the following structure:
+
+1. If there's only one condition column:
+   - The result is a Dict where keys are the values of the condition column, and values are Weights objects representing the probability distribution of the focal column for each condition.
+
+2. If there are multiple condition columns:
+   - The result is a Dict where:
+     - Keys are NamedTuples representing the values of all condition columns except the first one.
+     - Values are vectors, where each element corresponds to a bin/category of the first condition column.
+   - For `count_occurrences=true` with a single focal category:
+     - Each vector element is a single probability.
+   - For other cases:
+     - Each vector element is a vector of probabilities, one for each category of the focal column.
+
+This structure allows for efficient representation of multi-dimensional conditional distributions.
 """
 function probability_distribution(df::DataFrame, focal_column::Symbol;
   condition_columns::Vector{Symbol}=Symbol[],
@@ -114,36 +131,46 @@ end
 
 function calculate_conditional_distribution(df::DataFrame, focal_column::Symbol, condition_columns::Vector{Symbol},
   categories::Dict{Symbol,Vector}, count_occurrences::Bool)
-  grouped = groupby(df, condition_columns)
+
   result = Dict()
   focal_categories = categories[focal_column]
+  primary_condition = condition_columns[1]
+  secondary_conditions = condition_columns[2:end]
 
   if count_occurrences && length(focal_categories) == 1
-    counts = Dict()
-    for (key, group) in pairs(grouped)
-      counts[key] = sum(isequal.(group[!, focal_column], focal_categories[1]))
-    end
+    grouped = groupby(df, condition_columns)
+    counts = Dict(key => sum(isequal.(group[!, focal_column], focal_categories[1])) for (key, group) in pairs(grouped))
     total_counts = sum(values(counts))
 
-    # Group by the first condition column
-    primary_condition = condition_columns[1]
-    for primary_value in categories[primary_condition]
-      key = NamedTuple{(primary_condition,)}((primary_value,))
-      result[key] = Float64[]
-      for (group_key, count) in counts
-        if isequal(group_key[1], primary_value)
-          push!(result[key], count / total_counts)
+    # Group by secondary conditions
+    secondary_grouped = groupby(df, secondary_conditions)
+
+    for (sec_key, sec_group) in pairs(secondary_grouped)
+      result_key = NamedTuple{Tuple(secondary_conditions)}(sec_key)
+      result[result_key] = zeros(Float64, length(categories[primary_condition]))
+
+      for (i, primary_value) in enumerate(categories[primary_condition])
+        full_key = merge(NamedTuple{(primary_condition,)}((primary_value,)), result_key)
+        if haskey(counts, full_key)
+          result[result_key][i] = counts[full_key] / total_counts
         end
       end
     end
   else
     # For non-count_occurrences cases
-    for (key, group) in pairs(grouped)
-      counts = countmap(group[!, focal_column])
-      total = sum(values(counts))
-      probabilities = [get(counts, category, 0) / total for category in focal_categories]
-      named_key = NamedTuple{Tuple(condition_columns)}(key)
-      result[named_key] = Weights(probabilities)
+    grouped = groupby(df, secondary_conditions)
+
+    for (sec_key, sec_group) in pairs(grouped)
+      result_key = NamedTuple{Tuple(secondary_conditions)}(sec_key)
+      result[result_key] = Vector{Float64}[]
+
+      for primary_value in categories[primary_condition]
+        sub_group = filter(row -> row[primary_condition] == primary_value, sec_group)
+        counts = countmap(sub_group[!, focal_column])
+        total = sum(values(counts))
+        probabilities = [get(counts, category, 0) / total for category in focal_categories]
+        push!(result[result_key], probabilities)
+      end
     end
   end
 
