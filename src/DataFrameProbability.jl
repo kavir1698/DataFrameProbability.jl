@@ -32,7 +32,7 @@ function calculate_probability_distribution(
   column_types::Dict{Symbol,Symbol}=Dict{Symbol,Symbol}(),
   column_ranges::Dict{Symbol,Tuple{Real,Real}}=Dict{Symbol,Tuple{Real,Real}}(),
   all_categories::Dict{Symbol,Vector}=Dict{Symbol,Vector}(),
-  count_focal_occurrences::Bool=false) where {T<:Real}
+  count_focal_occurrences::Bool=false) where T<:Real
 
   # 1. Preprocess the data
   processed_df, updated_all_categories = preprocess_data(
