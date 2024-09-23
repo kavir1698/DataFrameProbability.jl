@@ -21,6 +21,7 @@ Calculate the probability distribution of a focal column in a DataFrame, optiona
 - `column_types::Dict{Symbol, Symbol}`: A dictionary mapping column names to their types. The types can be `:continuous` or `:categorical`. If a column is not found in the dictionary, it is considered `:continuous` by default.
 - `column_ranges::Dict{Symbol, Tuple{Real, Real}}`: A dictionary mapping column names to their min and max possible value. The ranges are used for discretization. If a column is not found in the dictionary, the minimum and maximum values of the column are used.
 - `all_categories::Dict{Symbol, Vector}`: A dictionary mapping column names to all possible categories for the focal column. If not provided, it will be calculated from the data.
+- `count_focal_occurrences::Bool=false`: If true, the probability distribution is calculated as the count of occurrences of each element in the focal column. If false, the probability distribution is calculated as the proportion of occurrences of each category.
 
 # Returns
 - `Tuple{Union{Weights, Dict}, Dict{Symbol, Vector}}`: The calculated probability distribution and a dictionary of all categories for each column.
@@ -30,7 +31,7 @@ function calculate_probability_distribution(
   n_bins::Union{Int,Dict{Symbol,Int}}= 5,
   column_types::Dict{Symbol,Symbol}=Dict{Symbol,Symbol}(),
   column_ranges::Dict{Symbol,Tuple{Real,Real}}=Dict{Symbol,Tuple{Real,Real}}(),
-  all_categories::Dict{Symbol,Vector}=Dict{Symbol,Vector}())
+  all_categories::Dict{Symbol,Vector}=Dict{Symbol,Vector}(), count_focal_occurrences::Bool=false)
 
   # 1. Preprocess the data
   processed_df, updated_all_categories = preprocess_data(
@@ -40,11 +41,11 @@ function calculate_probability_distribution(
   # 2. Calculate the distribution
   if isempty(condition_columns)
     dist = calculate_marginal_distribution(
-      processed_df, focal_column, updated_all_categories[focal_column])
+      processed_df, focal_column, updated_all_categories[focal_column], count_focal_occurrences)
     return dist, updated_all_categories
   else
     dist = calculate_conditional_distribution(
-      processed_df, focal_column, condition_columns, updated_all_categories)
+      processed_df, focal_column, condition_columns, updated_all_categories, count_focal_occurrences)
     return dist, updated_all_categories
   end
 end
@@ -81,30 +82,44 @@ function preprocess_data(
 end
 
 function calculate_marginal_distribution(
-  df::DataFrame, focal_column::Symbol, all_categories::Vector)
-  counts = countmap(df[!, focal_column])
-  total = sum(values(counts))
-
-  probabilities = [get(counts, category, 0) / total for category in all_categories]
-
-  return Weights(probabilities)
+  df::DataFrame, focal_column::Symbol, all_categories::Vector, count_focal_occurrences::Bool)
+  if count_focal_occurrences && length(all_categories) == 1
+    counts = sum(df[!, focal_column] .== all_categories[1])
+    return Weights([1.0]), counts
+  else
+    counts = countmap(df[!, focal_column])
+    total = sum(values(counts))
+    probabilities = [get(counts, category, 0) / total for category in all_categories]
+    return Weights(probabilities)
+  end
 end
 
 function calculate_conditional_distribution(
   df::DataFrame, focal_column::Symbol, condition_columns::Vector{Symbol},
-  all_categories::Dict{Symbol,Vector})
+  all_categories::Dict{Symbol,Vector}, count_focal_occurrences::Bool)
   grouped = groupby(df, condition_columns)
   result = Dict()
 
   focal_categories = all_categories[focal_column]
 
   for (key, group) in pairs(grouped)
-    counts = countmap(group[!, focal_column])
-    total = sum(values(counts))
+    if count_focal_occurrences && length(focal_categories) == 1
+      counts = sum(group[!, focal_column] .== focal_categories[1])
+      result[key] = (Weights([1.0]), counts)
+    else
+      counts = countmap(group[!, focal_column])
+      total = sum(values(counts))
+      probabilities = [get(counts, category, 0) / total for category in focal_categories]
+      result[key] = Weights(probabilities)
+    end
+  end
 
-    probabilities = [get(counts, category, 0) / total for category in focal_categories]
-
-    result[key] = Weights(probabilities)
+  if count_focal_occurrences && length(focal_categories) == 1
+    # Normalize counts to create a probability distribution
+    total_counts = sum(last.(values(result)))
+    for (key, (weights, count)) in result
+      result[key] = Weights([count / total_counts])
+    end
   end
 
   return result
