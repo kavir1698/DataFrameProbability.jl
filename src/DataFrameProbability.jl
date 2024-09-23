@@ -121,7 +121,7 @@ function calculate_conditional_distribution(df::DataFrame, focal_column::Symbol,
   if count_occurrences && length(focal_categories) == 1
     counts = Dict()
     for (key, group) in pairs(grouped)
-      counts[key] = sum(group[!, focal_column] .== focal_categories[1])
+      counts[key] = sum(isequal.(group[!, focal_column], focal_categories[1]))
     end
     total_counts = sum(values(counts))
 
@@ -131,13 +131,13 @@ function calculate_conditional_distribution(df::DataFrame, focal_column::Symbol,
       key = NamedTuple{(primary_condition,)}((primary_value,))
       result[key] = Float64[]
       for (group_key, count) in counts
-        if group_key[1] == primary_value
+        if isequal(group_key[1], primary_value)
           push!(result[key], count / total_counts)
         end
       end
     end
   else
-    # For non-count_occurrences cases, keep the original logic but use NamedTuples for keys
+    # For non-count_occurrences cases
     for (key, group) in pairs(grouped)
       counts = countmap(group[!, focal_column])
       total = sum(values(counts))
