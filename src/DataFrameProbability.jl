@@ -118,23 +118,30 @@ function calculate_conditional_distribution(df::DataFrame, focal_column::Symbol,
   result = Dict()
   focal_categories = categories[focal_column]
 
-  for (key, group) in pairs(grouped)
-    if count_occurrences && length(focal_categories) == 1
-      counts = sum(group[!, focal_column] .== focal_categories[1])
-      result[key] = (Weights([1.0]), counts)
-    else
+  if count_occurrences && length(focal_categories) == 1
+    counts = Dict()
+    for (key, group) in pairs(grouped)
+      counts[key] = sum(group[!, focal_column] .== focal_categories[1])
+    end
+    total_counts = sum(values(counts))
+
+    # Group by the first condition column
+    primary_condition = condition_columns[1]
+    for primary_value in categories[primary_condition]
+      result[primary_value] = Float64[]
+      for (key, count) in counts
+        if key[1] == primary_value
+          push!(result[primary_value], count / total_counts)
+        end
+      end
+    end
+  else
+    # For non-count_occurrences cases, keep the original logic
+    for (key, group) in pairs(grouped)
       counts = countmap(group[!, focal_column])
       total = sum(values(counts))
       probabilities = [get(counts, category, 0) / total for category in focal_categories]
       result[key] = Weights(probabilities)
-    end
-  end
-
-  if count_occurrences && length(focal_categories) == 1
-    # Normalize counts to create a probability distribution
-    total_counts = sum(last.(values(result)))
-    for (key, (weights, count)) in result
-      result[key] = Weights([count / total_counts])
     end
   end
 
