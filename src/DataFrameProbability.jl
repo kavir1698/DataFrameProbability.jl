@@ -128,20 +128,22 @@ function calculate_conditional_distribution(df::DataFrame, focal_column::Symbol,
     # Group by the first condition column
     primary_condition = condition_columns[1]
     for primary_value in categories[primary_condition]
-      result[primary_value] = Float64[]
-      for (key, count) in counts
-        if key[1] == primary_value
-          push!(result[primary_value], count / total_counts)
+      key = NamedTuple{(primary_condition,)}((primary_value,))
+      result[key] = Float64[]
+      for (group_key, count) in counts
+        if group_key[1] == primary_value
+          push!(result[key], count / total_counts)
         end
       end
     end
   else
-    # For non-count_occurrences cases, keep the original logic
+    # For non-count_occurrences cases, keep the original logic but use NamedTuples for keys
     for (key, group) in pairs(grouped)
       counts = countmap(group[!, focal_column])
       total = sum(values(counts))
       probabilities = [get(counts, category, 0) / total for category in focal_categories]
-      result[key] = Weights(probabilities)
+      named_key = NamedTuple{Tuple(condition_columns)}(key)
+      result[named_key] = Weights(probabilities)
     end
   end
 
